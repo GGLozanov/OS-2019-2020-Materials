@@ -1,0 +1,1 @@
+Although this homework can be graded with 600 points, do be warned that without the usage of the strtok() function, the benevolent teachers that determine your actual grade will not allot you over a B/B+. Discretion is advised and use strtok() to handle many spaces!

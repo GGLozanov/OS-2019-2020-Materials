@@ -1,0 +1,4 @@
+total 8
+-rw-r--r-- 1 georgi georgi 292 дек 14 00:45 a.txt
+-rw-r--r-- 1 georgi georgi   0 дек 14 00:47 b.txt
+-rw-r--r-- 1 georgi georgi 389 дек 14 00:45 pipe.c
