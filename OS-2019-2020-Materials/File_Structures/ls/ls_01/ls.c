@@ -287,9 +287,9 @@ int main(int argc, char** argv) {
 	// cond -> *argv[optind] != '-' ?
 	if(optind == argc) { // if no actual arguments are passed, just use the default dir
 		if(command_flags & R_FLAG_MASK) {
-			command_flags |= NO_ARG_MASK;
 			// strcpy(source_dir, ".");
 		}
+		command_flags |= NO_ARG_MASK;
 		ls(source_dir);
 		exit(0);
 	}
