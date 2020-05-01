@@ -38,33 +38,33 @@ void write_no_access_directory_error(char* dirname) {
     perror("");
 }
 
-int get_dir_block_count(char** dir_entries_names, int file_count) { // used in -l for block count
-	int total = 0;
-	for(int i = 0; i < file_count; i++) {
+void get_dir_block_count(DIR* dir, int* total) { // used in -l for block count
+	struct dirent* dir_entry;
+	while((dir_entry = readdir(dir)) != NULL) {
 		struct stat d_st;
-		stat(dir_entries_names[i], &d_st);
-		if(d_st.st_blocks != NULL) total += (int) d_st.st_blocks;
+		stat(dir_entry->d_name, &d_st);
+		*total += (int) d_st.st_blocks;
 	}
-	return total / 2;
+	*total /= 2;
 }
 
-int is_not_hidden_file_or_can_access(char* file_name) {
-	return *file_name != '.' || (*file_name == '.' && command_flags & A_FLAG_MASK);
+int is_hidden_file_or_can_access(struct dirent* dir_entry) {
+	return *dir_entry->d_name != '.' || (*dir_entry->d_name == '.' && command_flags & A_FLAG_MASK);
 }
 
 char* get_file_permissions(struct stat st, int is_dir) {
 	char* permissions = malloc(sizeof(char) * PERMISSIONS_SIZE);
 	mode_t _mode = st.st_mode & ~S_IFMT; // AND out the unnecessary bits and get those needed for file permission (by NOT-in the macro)
-	
+	// lots of ifs...
 	int perm_idx = 1;
 	
 	*permissions = is_dir ? 'd' : '-';
 	
-	permissions[perm_idx++] = _mode & S_IRUSR ? 'r' : '-'; // Goddamnit C,
-	permissions[perm_idx++] = _mode & S_IWUSR ? 'w' : '-'; // do you even have
-	permissions[perm_idx++] = _mode & S_IXUSR ? 'x' : '-'; // dictionaries/maps???
-	permissions[perm_idx++] = _mode & S_IRGRP ? 'r' : '-'; // and no,
-	permissions[perm_idx++] = _mode & S_IWGRP ? 'w' : '-'; // I am not making my own
+	permissions[perm_idx++] = _mode & S_IRUSR ? 'r' : '-';
+	permissions[perm_idx++] = _mode & S_IWUSR ? 'w' : '-';
+	permissions[perm_idx++] = _mode & S_IXUSR ? 'x' : '-';
+	permissions[perm_idx++] = _mode & S_IRGRP ? 'r' : '-';
+	permissions[perm_idx++] = _mode & S_IWGRP ? 'w' : '-';
 	permissions[perm_idx++] = _mode & S_IXGRP ? 'x' : '-';
 	permissions[perm_idx++] = _mode & S_IROTH ? 'r' : '-';
 	permissions[perm_idx++] = _mode & S_IWOTH ? 'w' : '-';
@@ -95,7 +95,7 @@ char get_file_prefix(struct stat st) { // sadly, you can't access the mode_t str
 	if(S_ISFIFO(st.st_mode)) {
 		return 'p';
 	}
-	return ' ';
+	return NULL;
 }
 
 void ls_file_r(struct stat* st, char* name) {
@@ -113,13 +113,13 @@ void ls_file_l(struct stat* st, int is_dir, char* name) {
 	
 	struct passwd* u_pwd; // storing user info
 	struct passwd* g_pwd; // storing group info
+	struct tm* t = localtime(&st->st_mtim);
+	char time[256];
+	strftime(time, sizeof(time), "%b %e %H:%M", t);
+	// TODO: Find way to omit day of the week	
 	
 	u_pwd = getpwuid(st->st_uid);
 	g_pwd = getgrgid(st->st_gid);
-	
-	struct tm* t = localtime(&st->st_mtim); // access time
-	char time[256];
-	strftime(time, sizeof(time), "%b %e %H:%M", t);
 	
 	printf("%s %d %s %s %ld %s %s\n", permissions, (unsigned) st->st_nlink, u_pwd->pw_name, g_pwd->pw_name, st->st_size, time, name);
 	
@@ -142,30 +142,27 @@ void ls_dir_a(struct dirent* dir_entry) {
 	// call ls_dir_default() w/ mode for hidden files set to true
 }
 
-void ls_dir_r(char* file_name) {
-	ls(file_name);
+void ls_dir_r(struct dirent* dir_entry) {
 	// recursive call to ls()
 }
 
-void ls_dir_l(char* file_name) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
+void ls_dir_l(struct dirent* dir_entry, int total) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
 	// check NO_ARG_MASK here
-	struct stat dir_stat;
-	if(stat(file_name, &dir_stat) == -1) {
-		perror("ls: ");
-		return;
+	if(is_hidden_file_or_can_access(dir_entry)) {
+		struct stat dir_stat;
+		stat(dir_entry->d_name, &dir_stat);
+		ls_file_l(&dir_stat, S_ISDIR(dir_stat.st_mode), dir_entry->d_name); // ternary for 1 and 0?
 	}
-	ls_file_l(&dir_stat, S_ISDIR(dir_stat.st_mode), file_name); // ternary for 1 and 0?
 }
 
-void ls_dir_default(char* file_name) { // handles both -A and default
-	struct stat dir_stat;
-
-	if(stat(file_name, &dir_stat) == -1) {
-		perror("ls: ");
-		return;
+void ls_dir_default(struct dirent* dir_entry) { // handles both -A and default
+	if(is_hidden_file_or_can_access(dir_entry)) {
+		struct stat dir_stat;
+		stat(dir_entry->d_name, &dir_stat);
+		printf("%c %s\n", get_file_prefix(dir_stat), dir_entry->d_name);
 	}
-	printf("%c %s\n", get_file_prefix(dir_stat), file_name);
 }
+
 
 // also calls ls_file
 void ls_dir(struct stat* st, char* path) {
@@ -176,47 +173,34 @@ void ls_dir(struct stat* st, char* path) {
 		return;
 	} // error check here
 	
-	chdir(path); // changes the current working directory to the one set by ls 
-	// (hey, our teachers didn't mention this function at all and I had to search it up in a SO thread!)
-	
 	struct dirent* dir_entry;
 	
-	char** dir_entries_names = (char**) malloc(sizeof(char*)); // array to keep track of all the file names
-
-	int file_count = 0; // total file count
-	
+	int total = 0; 
+		
 	if(!(command_flags & NO_ARG_MASK)) printf("%s:\n", path); 
 	// if there is at least one argument, call the prefix
 	// -l also has the listing apparently -> !(command_flags & L_FLAG_MASK) && 
+	if(command_flags & L_FLAG_MASK) {
+		// TODO: 100% find a goddamn way to optimise this or I swear to god
+		get_dir_block_count(dir, &total);
+		printf("total %d\n", total);
+		closedir(dir);
+		if((dir = opendir(path)) == NULL) {
+			write_no_access_directory_error(path);
+			return;
+		} // error check here
+	}
 	
 	while((dir_entry = readdir(dir)) != NULL) {
-		// check for hidden files flag and don't check later on
-		if(is_not_hidden_file_or_can_access(dir_entry->d_name)) {
-			dir_entries_names[file_count] = malloc(strlen(dir_entry->d_name)); // +1 for terminating null char
-			strcpy(dir_entries_names[file_count++], dir_entry->d_name);
-			dir_entries_names = (char**) realloc(dir_entries_names, sizeof(dir_entry->d_name));
-		}
-	}
-	
-	
-	if(command_flags & L_FLAG_MASK) {
-		int total = get_dir_block_count(dir_entries_names, file_count); // get the block count and pass it on for -l
-		printf("total %d\n", total);	
-	}
-	
-	for(int i = 0; i < file_count; i++) {
-		// optimise bool condition
-		if(command_flags & R_FLAG_MASK) ls_dir_r(dir_entries_names[i]);		
-		else if(command_flags & L_FLAG_MASK) ls_dir_l(dir_entries_names[i]);
+	    // optimise bool condition
+	    	if(command_flags & R_FLAG_MASK) ls_dir_r(dir_entry);		
+		else if(command_flags & L_FLAG_MASK) ls_dir_l(dir_entry, total);
 		else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK) {
-			ls_dir_default(dir_entries_names[i]); 
+			ls_dir_default(dir_entry); 
 			// ls_dir_default() handles both -A and default 
 			// (which is why check is like that and doesn't use ALL_FLAG_MASK)
 		}
-		free(dir_entries_names[i]);
 	}
-
-	free(dir_entries_names);
 
 	closedir(dir);
 }
@@ -248,12 +232,18 @@ int main(int argc, char** argv) {
 	while((opt = getopt(argc, argv, OPT_LIST)) != -1) {
 		switch(opt) {
 			case 'A':
+				// printf("Received -A as arg!\n");
+				// printf("arg: %s\n", optarg);
 				command_flags |= A_FLAG_MASK; // add the -A flag mask to the command_flag var
 				break;
 			case 'l':
+				// printf("Received -l as arg!\n");
+				// printf("arg: %s\n", optarg);
 				command_flags |= L_FLAG_MASK; // add the -l flag mask to the command_flag var
 				break;
 			case 'R':
+				// printf("Received -R as arg!\n");
+				// printf("arg: %s\n", optarg);
 				command_flags |= R_FLAG_MASK; // add the -R flag mask to the command_flag var
 				break;
 			default: exit(1);
@@ -272,9 +262,7 @@ int main(int argc, char** argv) {
 	
 	for(idx = optind; idx < argc; idx++) {
 		ls(argv[idx]);
-		if(!(command_flags & NO_ARG_MASK) && idx + 1 != argc) printf("\n"); 
+		if(!(command_flags & NO_ARG_MASK) && idx == argc) printf("\n"); 
 	}
-	
-	exit(0);
 	// run stat() and check if dir => do stuff depending on type
 }
