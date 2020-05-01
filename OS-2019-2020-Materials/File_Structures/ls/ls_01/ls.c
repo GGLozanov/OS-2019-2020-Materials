@@ -125,45 +125,36 @@ void ls_file_l(struct stat* st, int is_dir, char* name) {
 	free(permissions);
 }
 
-void ls_default(char* file_name) { // handles both -A and default, along with dirs and files
-	struct stat file_stat;
-
-	if(stat(file_name, &file_stat) == -1) {
-		return;
-	}
-	
+void ls_default(char* file_name, struct stat file_stat) { // handles both -A and default, along with dirs and files
 	printf("%c %s\n", get_file_prefix(file_stat.st_mode), file_name);
 }
 
 void ls_file(struct stat* st, char* path) {
 	if(command_flags & L_FLAG_MASK) ls_file_l(st, 0, path);
 	else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK || command_flags & R_FLAG_MASK) {
-		ls_default(path);
+		ls_default(path, *st);
 	}
 }
 
-void ls_dir_r(char* file_name, int* recursive_flag) {
-	if(*recursive_flag) {
-		*recursive_flag = 0;
-		ls(file_name);
-	} else *recursive_flag = 1;
-	// recursive call to ls()
+void ls_dir_r(int dir_count, char** dir_entries_dir_names, char* original_path) {
+	for(int i = 0; i < dir_count; i++) {
+		printf("sub_dir: %s\n", dir_entries_dir_names[i]);
+		char* file_name = strcat(strcat(original_path, "/"), dir_entries_dir_names[i]);
+		ls(file_name); // recursive call to ls()
+		free(dir_entries_dir_names[i]);
+		file_name = NULL;
+	}
 }
 
-void ls_dir_l(char* file_name) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
+void ls_dir_l(char* file_name, struct stat file_stat) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
 	// check NO_ARG_MASK here
-	struct stat dir_stat;
-	if(stat(file_name, &dir_stat) == -1) {
-		return;
-	}
-	ls_file_l(&dir_stat, 1, file_name); // ternary for 1 and 0?
+	// check if dir because of the possibility of files and dirs inside dirs
+	ls_file_l(&file_stat, S_ISDIR(file_stat.st_mode), file_name);
 }
 
 // also calls ls_file
 void ls_dir(struct stat* st, char* path) {
 	DIR* dir;
-	
-	static short recursive_flag = 1;
 	
 	if((dir = opendir(path)) == NULL) {
 		write_no_access_directory_error(path);
@@ -176,12 +167,14 @@ void ls_dir(struct stat* st, char* path) {
 	struct dirent* dir_entry;
 	
 	char** dir_entries_names = (char**) malloc(sizeof(char*)); // array to keep track of all the file names
+	char** dir_entries_dir_names = (char**) malloc(sizeof(char*)); // array to keep track of only the directory names
 
 	int file_count = 0; // total file count
+	int dir_count = 0; // total directory count
 	
-	if(!(command_flags & NO_ARG_MASK)) printf("\n%s:\n", path); 
+	if(!(command_flags & NO_ARG_MASK) || command_flags & R_FLAG_MASK) printf("\n%s:\n", path); 
 	// if there is at least one argument, call the prefix
-	// -l also has the listing apparently -> !(command_flags & L_FLAG_MASK) && 
+	// -R lists out no 	matter what
 	
 	while((dir_entry = readdir(dir)) != NULL) {
 		// check for hidden files flag and don't check later on
@@ -199,11 +192,25 @@ void ls_dir(struct stat* st, char* path) {
 	
 	for(int i = 0; i < file_count; i++) {
 		// optimise bool condition
-		if(command_flags & R_FLAG_MASK) ls_dir_r(dir_entries_names[i], &recursive_flag);		
-		else if(command_flags & L_FLAG_MASK) ls_dir_l(dir_entries_names[i]);
-		else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK) {
-			ls_default(dir_entries_names[i]); 
-			// ls_dir_default() handles both -A and default 
+		struct stat file_stat; // current directory stat struct
+
+		if(stat(dir_entries_names[i], &file_stat) == -1) {
+			continue;
+		}
+		
+		if(command_flags & R_FLAG_MASK) {
+			// TODO: Optimise this and make it more readable
+			if(S_ISDIR(file_stat.st_mode)) { // add to directories array if -R flag is enabled
+				dir_entries_dir_names[dir_count] = malloc(strlen(dir_entries_names[i]) + 1); // +1 for terminating null char
+				strcpy(dir_entries_dir_names[dir_count++], dir_entries_names[i]);
+				dir_entries_dir_names = (char**) realloc(dir_entries_dir_names, sizeof(dir_entries_names[i]));
+			}
+		} 
+		
+		if(command_flags & L_FLAG_MASK) ls_dir_l(dir_entries_names[i], file_stat);
+		else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK || command_flags & R_FLAG_MASK) {
+			ls_default(dir_entries_names[i], file_stat); 
+			// ls_dir_default() handles both -A, -R, and default 
 			// (which is why check is like that and doesn't use ALL_FLAG_MASK)
 		}
 		free(dir_entries_names[i]);
@@ -211,7 +218,12 @@ void ls_dir(struct stat* st, char* path) {
 
 	free(dir_entries_names);
 	
-	chdir(source_dir); // change back to the source directory
+	if(command_flags & R_FLAG_MASK) {
+		ls_dir_r(dir_count, dir_entries_dir_names, path); // call the recursive ls at the end of this if the flag is set
+		free(dir_entries_dir_names);
+	}	
+	
+	chdir(source_dir); // change back to the source directory in case of switch
 
 	closedir(dir);
 }
@@ -257,18 +269,19 @@ int main(int argc, char** argv) {
 	// set the opt index back to the start
 	// cond -> *argv[optind] != '-' ?
 	if(optind == argc) { // if no actual arguments are passed, just use the default dir
-		command_flags |= NO_ARG_MASK;
+		if(command_flags & R_FLAG_MASK) {
+			command_flags |= NO_ARG_MASK;
+			strcpy(source_dir, "."); // we can safely use the current dir here w/out mucking the stat() calls up
+		}
 		ls(source_dir);
 		exit(0);
 	}
 	
 	if(optind + 1 == argc) command_flags |= NO_ARG_MASK; // if just one argument is passed, use it w/ the proper formatting
 	
-	int is_directory;
-	
 	for(idx = optind; idx < argc; idx++) {
 	 	// if the passed in dir is ".", pass the cwd first found in main()
-	 	// this is required due to 
+	 	// this is required due to changes in directories
 		ls(argv[idx]);
 	}
 	

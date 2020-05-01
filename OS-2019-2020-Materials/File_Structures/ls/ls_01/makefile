@@ -1,2 +1,2 @@
 all:
-	gcc -Wall -pedantic ls.c -o ls
+	gcc -Wall -g -pedantic ls.c -o ls
