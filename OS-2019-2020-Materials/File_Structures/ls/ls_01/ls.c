@@ -19,10 +19,10 @@
 #define NO_ARG_MASK 0b1000 // bit mask for when no arguments are given to the program
 #define ALL_FLAG_MASK (A_FLAG_MASK | L_FLAG_MASK | R_FLAG_MASK) // 0b111
 #define OPT_LIST "ARl" // options list
-#define DEFAULT_DIR "."
 #define PERMISSIONS_SIZE 11
 
 static short command_flags = 0b0000;
+char source_dir[PATH_MAX]; // source directory wherein ls is first called
 
 void write_not_exist_file_error(char* filename) {
     write(STDERR_FILENO, "ls: cannot access ", 18);
@@ -143,6 +143,7 @@ void ls_dir_a(struct dirent* dir_entry) {
 }
 
 void ls_dir_r(char* file_name) {
+	printf("ls'ing this: %s\n", file_name);
 	ls(file_name);
 	// recursive call to ls()
 }
@@ -151,7 +152,6 @@ void ls_dir_l(char* file_name) { // pass in copy of direntry, not ptr? Teacher t
 	// check NO_ARG_MASK here
 	struct stat dir_stat;
 	if(stat(file_name, &dir_stat) == -1) {
-		perror("ls: ");
 		return;
 	}
 	ls_file_l(&dir_stat, S_ISDIR(dir_stat.st_mode), file_name); // ternary for 1 and 0?
@@ -161,7 +161,6 @@ void ls_dir_default(char* file_name) { // handles both -A and default
 	struct stat dir_stat;
 
 	if(stat(file_name, &dir_stat) == -1) {
-		perror("ls: ");
 		return;
 	}
 	printf("%c %s\n", get_file_prefix(dir_stat), file_name);
@@ -198,7 +197,6 @@ void ls_dir(struct stat* st, char* path) {
 		}
 	}
 	
-	
 	if(command_flags & L_FLAG_MASK) {
 		int total = get_dir_block_count(dir_entries_names, file_count); // get the block count and pass it on for -l
 		printf("total %d\n", total);	
@@ -217,6 +215,8 @@ void ls_dir(struct stat* st, char* path) {
 	}
 
 	free(dir_entries_names);
+	
+	chdir(source_dir); // change back to the source directory
 
 	closedir(dir);
 }
@@ -242,8 +242,9 @@ void ls(char* path) {
 int main(int argc, char** argv) {
 	int opt;
 	int idx;
-	// char** opt_args;
-	setlocale(LC_ALL, "");
+	
+	getcwd(source_dir, sizeof(source_dir)); // get the default current working directory and save it for later use
+	setlocale(LC_ALL, ""); // set the default language to the user's default
 	
 	while((opt = getopt(argc, argv, OPT_LIST)) != -1) {
 		switch(opt) {
@@ -264,15 +265,17 @@ int main(int argc, char** argv) {
 	// cond -> *argv[optind] != '-' ?
 	if(optind == argc) { // if no actual arguments are passed, just use the default dir
 		command_flags |= NO_ARG_MASK;
-		ls(DEFAULT_DIR);
+		ls(source_dir);
 		exit(0);
 	}
 	
 	if(optind + 1 == argc) command_flags |= NO_ARG_MASK; // if just one argument is passed, use it w/ the proper formatting
 	
 	for(idx = optind; idx < argc; idx++) {
+	 	// if the passed in dir is ".", pass the cwd first found in main()
+	 	// this is required due to 
 		ls(argv[idx]);
-		if(!(command_flags & NO_ARG_MASK) && idx + 1 != argc) printf("\n"); 
+		if(!(command_flags & NO_ARG_MASK) && idx + 1 != argc) printf("\n");
 	}
 	
 	exit(0);
