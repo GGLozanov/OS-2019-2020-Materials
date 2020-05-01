@@ -52,47 +52,49 @@ int is_not_hidden_file_or_can_access(char* file_name) {
 	return *file_name != '.' || (*file_name == '.' && command_flags & A_FLAG_MASK);
 }
 
-char* get_file_permissions(struct stat st, int is_dir) {
+char* get_file_permissions(mode_t mode, int is_dir) {
 	char* permissions = malloc(sizeof(char) * PERMISSIONS_SIZE);
-	mode_t _mode = st.st_mode & ~S_IFMT; // AND out the unnecessary bits and get those needed for file permission (by NOT-in the macro)
 	
-	int perm_idx = 1;
+	mode &= ~S_IFMT; // AND out the unnecessary bits and get those needed for file permission (by NOT-in the macro)
 	
-	*permissions = is_dir ? 'd' : '-';
+	int perm_idx = 0; 
 	
-	permissions[perm_idx++] = _mode & S_IRUSR ? 'r' : '-'; // Goddamnit C,
-	permissions[perm_idx++] = _mode & S_IWUSR ? 'w' : '-'; // do you even have
-	permissions[perm_idx++] = _mode & S_IXUSR ? 'x' : '-'; // dictionaries/maps???
-	permissions[perm_idx++] = _mode & S_IRGRP ? 'r' : '-'; // and no,
-	permissions[perm_idx++] = _mode & S_IWGRP ? 'w' : '-'; // I am not making my own
-	permissions[perm_idx++] = _mode & S_IXGRP ? 'x' : '-';
-	permissions[perm_idx++] = _mode & S_IROTH ? 'r' : '-';
-	permissions[perm_idx++] = _mode & S_IWOTH ? 'w' : '-';
-	permissions[perm_idx++] = _mode & S_IXOTH ? 'x' : '-';
+	permissions[perm_idx++] = is_dir ? 'd' : '-';
+	permissions[perm_idx++] = mode & S_IRUSR ? 'r' : '-'; // Goddamnit C,
+	permissions[perm_idx++] = mode & S_IWUSR ? 'w' : '-'; // do you even have
+	permissions[perm_idx++] = mode & S_IXUSR ? 'x' : '-'; // dictionaries/maps???
+	permissions[perm_idx++] = mode & S_IRGRP ? 'r' : '-'; // and no,
+	permissions[perm_idx++] = mode & S_IWGRP ? 'w' : '-'; // I am not making my own
+	permissions[perm_idx++] = mode & S_IXGRP ? 'x' : '-';
+	permissions[perm_idx++] = mode & S_IROTH ? 'r' : '-'; // also, I know just printing them
+	permissions[perm_idx++] = mode & S_IWOTH ? 'w' : '-'; // is far smarter
+	permissions[perm_idx++] = mode & S_IXOTH ? 'x' : '-'; // but I guess I'm just a masochist who writes bad code
+	
+	permissions[perm_idx] = '\0';
 	
 	return permissions;
 }
 
-char get_file_prefix(struct stat st) { // sadly, you can't access the mode_t struct :(
-	if(S_ISREG(st.st_mode)) {
+char get_file_prefix(mode_t mode) {
+	if(S_ISREG(mode)) {
 		return '-';
 	}
-	if(S_ISDIR(st.st_mode)) {
+	if(S_ISDIR(mode)) {
 		return 'd';
 	}
-	if(S_ISSOCK(st.st_mode)) {
+	if(S_ISSOCK(mode)) {
 		return 's';
 	}
-	if(S_ISLNK(st.st_mode)) {
+	if(S_ISLNK(mode)) {
 		return 'l';
 	}
-	if(S_ISBLK(st.st_mode)) {
+	if(S_ISBLK(mode)) {
 		return 'b';
 	}
-	if(S_ISCHR(st.st_mode)) {
+	if(S_ISCHR(mode)) {
 		return 'c';
 	}
-	if(S_ISFIFO(st.st_mode)) {
+	if(S_ISFIFO(mode)) {
 		return 'p';
 	}
 	return ' ';
@@ -109,7 +111,7 @@ void ls_file_l(struct stat* st, int is_dir, char* name) {
 	// implement logic here w/ everything
 	// get permissions, deep links, users/groups, time w/ localtime(), file/dir name
 	// ternary for permissions
-	char* permissions = get_file_permissions(*st, is_dir);
+	char* permissions = get_file_permissions(st->st_mode, is_dir);
 	
 	struct passwd* u_pwd; // storing user info
 	struct passwd* g_pwd; // storing group info
@@ -127,7 +129,7 @@ void ls_file_l(struct stat* st, int is_dir, char* name) {
 }
 
 void ls_file_default(struct stat* st, char* name) {
-	printf("%c %s\n", get_file_prefix(*st), name);
+	printf("%c %s\n", get_file_prefix(st->st_mode), name);
 }
 
 void ls_file(struct stat* st, char* path) {
@@ -163,7 +165,8 @@ void ls_dir_default(char* file_name) { // handles both -A and default
 	if(stat(file_name, &dir_stat) == -1) {
 		return;
 	}
-	printf("%c %s\n", get_file_prefix(dir_stat), file_name);
+	
+	printf("%c %s\n", get_file_prefix(dir_stat.st_mode), file_name);
 }
 
 // also calls ls_file
