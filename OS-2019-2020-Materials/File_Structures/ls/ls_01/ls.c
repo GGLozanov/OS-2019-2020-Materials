@@ -48,7 +48,7 @@ int get_dir_block_count(char** dir_entries_names, int file_count) { // used in -
 	for(int i = 0; i < file_count; i++) {
 		struct stat d_st;
 		stat(dir_entries_names[i], &d_st);
-		if(d_st.st_blocks != NULL) total += (int) d_st.st_blocks;
+		total += (int) d_st.st_blocks;
 	}
 	return total / 2;
 }
@@ -128,16 +128,19 @@ void ls_file_l(struct stat* st, int is_dir, char* name) {
 	free(permissions);
 }
 
-void ls_default(char* file_name, struct stat file_stat) { // handles both -A and default, along with dirs and files
+void ls_default(char* file_name, struct stat file_stat, int is_just_file) { // handles both -A and default, along with dirs and files
+	if(idx > optind && is_just_file) printf("\n");
 	printf("%c %s\n", get_file_prefix(file_stat.st_mode), file_name);
 }
 
 void ls_file(struct stat* st, char* path) {
 	if(command_flags & L_FLAG_MASK) ls_file_l(st, 0, path);
 	else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK || command_flags & R_FLAG_MASK) {
-		ls_default(path, *st);
+		ls_default(path, *st, 1);
 	}
 }
+
+void ls(char*, int);
 
 void ls_dir_r(char* dir_name, char* original_path) {
 	char new_path[PATH_MAX];
@@ -217,7 +220,7 @@ void ls_dir(struct stat* st, char* path, int is_recursion) {
 		if(command_flags & L_FLAG_MASK) {
 			ls_dir_l(dir_entries_names[i], file_stat);
 		} else if(!(command_flags & ALL_FLAG_MASK) || command_flags & A_FLAG_MASK || command_flags & R_FLAG_MASK) {
-			ls_default(dir_entries_names[i], file_stat); 
+			ls_default(dir_entries_names[i], file_stat, 0); 
 			// ls_dir_default() handles both -A, -R, and default 
 			// (which is why check is like that and doesn't use ALL_FLAG_MASK)
 		}
