@@ -26,6 +26,7 @@
 // TODO: Fix spacing
 
 static short command_flags = 0b0000;
+int idx; // optind idx (follows through the program up to argc)
 char source_dir[PATH_MAX]; // source directory wherein ls is first called
 
 void write_not_exist_file_error(char* filename) {
@@ -141,9 +142,8 @@ void ls_file(struct stat* st, char* path) {
 void ls_dir_r(char* dir_name, char* original_path) {
 	char new_path[PATH_MAX];
 	int new_path_len = original_path[strlen(original_path) - 1] == '/' ? snprintf(new_path, sizeof(new_path) - 1, "%s%s", original_path, dir_name) : snprintf(new_path, sizeof(new_path) - 1, "%s/%s", original_path, dir_name);
-	// printf("new path: %s\n", new_path);
 
-	ls(new_path); // recursive call to ls_dir()
+	ls(new_path, 1); // recursive call to ls_dir()
 }
 
 void ls_dir_l(char* file_name, struct stat file_stat) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
@@ -153,7 +153,7 @@ void ls_dir_l(char* file_name, struct stat file_stat) { // pass in copy of diren
 }
 
 // also calls ls_file
-void ls_dir(struct stat* st, char* path) {
+void ls_dir(struct stat* st, char* path, int is_recursion) {
 	DIR* dir;
 	
 	errno = 0;
@@ -177,7 +177,10 @@ void ls_dir(struct stat* st, char* path) {
 
 	int file_count = 0; // total file count
 	
-	if(!(command_flags & NO_ARG_MASK) || command_flags & R_FLAG_MASK) printf("\n%s:\n", path); 
+	if(!(command_flags & NO_ARG_MASK) || command_flags & R_FLAG_MASK) {
+		if(idx > optind || is_recursion) printf("\n");
+		printf("%s:\n", path); 
+	}
 	// if there is at least one argument, call the prefix
 	// -R lists out no 	matter what
 	
@@ -221,7 +224,9 @@ void ls_dir(struct stat* st, char* path) {
 	}
 	
 	if(command_flags & R_FLAG_MASK) {
-		chdir(source_dir);
+		if(chdir(source_dir) != 0) {
+			perror("");
+		}
 		for(int i = 0; i < dir_count; i++) {
 			ls_dir_r(dir_entries_names[directories_indices[i]], path); // call the recursive ls at the end of this if the flag is set
 		}
@@ -244,7 +249,7 @@ void ls_dir(struct stat* st, char* path) {
 	closedir(dir);
 }
 
-void ls(char* path) {
+void ls(char* path, int is_recursion) {
 	// determines apt functions by calling stat() and ls_type_arg if needed
 	// 1 - for directories; 0 - files
 	struct stat st;
@@ -257,13 +262,12 @@ void ls(char* path) {
 	// might need to move AND to prefix function
 
 	if(S_ISDIR(st.st_mode)) {
-		ls_dir(&st, path);
+		ls_dir(&st, path, is_recursion);
 	} else ls_file(&st, path);
 }
 
 int main(int argc, char** argv) {
 	int opt;
-	int idx;
 	
 	getcwd(source_dir, sizeof(source_dir)); // get the default current working directory and save it for later use
 	setlocale(LC_ALL, ""); // set the default language to the user's default
@@ -287,7 +291,7 @@ int main(int argc, char** argv) {
 	// cond -> *argv[optind] != '-' ?
 	if(optind == argc) { // if no actual arguments are passed, just use the default dir
 		command_flags |= NO_ARG_MASK;
-		ls(DEFAULT_DIR);
+		ls(DEFAULT_DIR, 0);
 		exit(0);
 	}
 	
@@ -296,7 +300,7 @@ int main(int argc, char** argv) {
 	for(idx = optind; idx < argc; idx++) {
 	 	// if the passed in dir is ".", pass the cwd first found in main()
 	 	// this is required due to changes in directories
-		ls(argv[idx]);
+		ls(argv[idx], 0);
 	}
 	
 	exit(0);
