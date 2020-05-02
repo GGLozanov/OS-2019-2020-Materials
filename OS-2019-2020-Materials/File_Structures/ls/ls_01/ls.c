@@ -139,21 +139,11 @@ void ls_file(struct stat* st, char* path) {
 }
 
 void ls_dir_r(char* dir_name, char* original_path) {
-	/* char test_buf[PATH_MAX];
-	getcwd(test_buf, sizeof(test_buf));
-	printf("current working dir: %s\n", test_buf); */
-
 	char new_path[PATH_MAX];
 	int new_path_len = original_path[strlen(original_path) - 1] == '/' ? snprintf(new_path, sizeof(new_path) - 1, "%s%s", original_path, dir_name) : snprintf(new_path, sizeof(new_path) - 1, "%s/%s", original_path, dir_name);
 	// printf("new path: %s\n", new_path);
 
-	struct stat st;
-	if(stat(new_path, &st) == -1  && errno == ENOENT) { // switch to OR from AND?
-		write_not_exist_file_error(new_path);
-		return;
-	} // error check here
-
-	ls_dir(&st, new_path); // recursive call to ls_dir()
+	ls(new_path); // recursive call to ls_dir()
 }
 
 void ls_dir_l(char* file_name, struct stat file_stat) { // pass in copy of direntry, not ptr? Teacher told us to copy our direntries
@@ -166,13 +156,17 @@ void ls_dir_l(char* file_name, struct stat file_stat) { // pass in copy of diren
 void ls_dir(struct stat* st, char* path) {
 	DIR* dir;
 	
-	if((dir = opendir(path)) == NULL) {
+	errno = 0;
+	if((dir = opendir(path)) == NULL && errno == EACCES) {
 		write_no_access_directory_error(path);
 		return;
 	} // error check here
 		
 	if(strcmp(path, ".") != 0) {
-		chdir(path); // changes the current working directory to the one set by ls 
+		if(chdir(path) != 0) { // changes the current working directory to the one set by ls 
+			write_no_access_directory_error(path);
+			return;
+		}
 		// (hey, our teachers didn't mention this function at all and I had to search it up in a SO thread!)
 		// oh wait, nevermind, that's just programming in general, isn't it
 	}
@@ -187,12 +181,12 @@ void ls_dir(struct stat* st, char* path) {
 	// if there is at least one argument, call the prefix
 	// -R lists out no 	matter what
 	
-	while((dir_entry = readdir(dir)) != NULL) {
+	while((dir_entry = readdir(dir)) != NULL) { // TODO: readdir() error checks
 		// check for hidden files flag and don't check later on
 		if(is_not_hidden_file_or_can_access(dir_entry->d_name)) {
 			dir_entries_names[file_count] = malloc(strlen(dir_entry->d_name) + 1); // +1 for terminating null char
 			strcpy(dir_entries_names[file_count++], dir_entry->d_name);
-			dir_entries_names = (char**) realloc(dir_entries_names, PATH_MAX); // reallocate w/ PATH_MAX space
+			dir_entries_names = (char**) realloc(dir_entries_names, PATH_MAX); // reallocate w/ PATH_MAX space for new str
 		}
 	}
 	
@@ -227,6 +221,7 @@ void ls_dir(struct stat* st, char* path) {
 	}
 	
 	if(command_flags & R_FLAG_MASK) {
+		chdir(source_dir);
 		for(int i = 0; i < dir_count; i++) {
 			ls_dir_r(dir_entries_names[directories_indices[i]], path); // call the recursive ls at the end of this if the flag is set
 		}
@@ -253,6 +248,7 @@ void ls(char* path) {
 	// determines apt functions by calling stat() and ls_type_arg if needed
 	// 1 - for directories; 0 - files
 	struct stat st;
+	errno = 0;
 	if(stat(path, &st) == -1  && errno == ENOENT) { // switch to OR from AND?
 		write_not_exist_file_error(path);
 		return;

@@ -18,6 +18,7 @@ void listdir(const char *name, int indent)
             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
                 continue;
             snprintf(path, sizeof(path), "%s/%s", name, entry->d_name);
+            printf("new path: %s\n", path);
             printf("%*s[%s]\n", indent, "", entry->d_name);
             listdir(path, indent + 2);
         } else {
